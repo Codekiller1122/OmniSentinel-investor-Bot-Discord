@@ -1,0 +1,18 @@
+version: '3.8'
+services:
+  investorsentinel-backend:
+    build: ./investorsentinel-backend
+    volumes:
+      - ./investorsentinel-backend:/app
+    env_file:
+      - ./investorsentinel-backend/.env.example
+    ports:
+      - '8000:8000'
+  discord-bot:
+    build: ./discord-bot
+    volumes:
+      - ./discord-bot:/app
+    env_file:
+      - ./discord-bot/.env.example
+    depends_on:
+      - investorsentinel-backend
