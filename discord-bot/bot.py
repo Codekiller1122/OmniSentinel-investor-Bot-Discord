@@ -1,18 +1,15 @@
-import os, time, json, threading, requests
-import asyncio
-import aiohttp
-import sys
+import os, time, json, threading, requests, asyncio, aiohttp, sys
 from discord import Intents
 from discord.ext import commands
 
 DISCORD_TOKEN = os.environ.get('DISCORD_TOKEN')
 BACKEND_SSE = os.environ.get('BACKEND_SSE','http://investorsentinel-backend:8000/api/stream/sse/')
+BACKEND_API = os.environ.get('BACKEND_API','http://investorsentinel-backend:8000')
 BOT_PREFIX = os.environ.get('BOT_PREFIX','!')
 
 intents = Intents.default()
 bot = commands.Bot(command_prefix=BOT_PREFIX, intents=intents)
 
-# helper: post message to channel id (string)
 async def post_to_channel(bot, channel_id, message):
     try:
         ch = bot.get_channel(int(channel_id))
@@ -23,7 +20,6 @@ async def post_to_channel(bot, channel_id, message):
     except Exception as e:
         print('post error', e)
 
-# Background task: connect to SSE and forward alerts
 async def sse_listener():
     await bot.wait_until_ready()
     session = aiohttp.ClientSession()
@@ -41,22 +37,21 @@ async def sse_listener():
                     if s.startswith('data:'):
                         payload = s[len('data:'):].strip()
                         data = json.loads(payload)
-                        # fetch subscriptions for ticker via REST API
+                        ticker = data.get('ticker')
+                        # fetch subscriptions for this ticker
                         try:
-                            subs = requests.get(os.environ.get('BACKEND_API','http://investorsentinel-backend:8000') + '/api/subscriptions/').json()
+                            subs = requests.get(BACKEND_API + '/api/subscriptions/').json()
                         except Exception:
                             subs = []
-                        # send to subscribed channels that match ticker
+                        message = f"**ALERT**: {ticker} score={data.get('score')}\n{data.get('summary','')[:800]}"
                         for sub in subs:
-                            # simple: check subscription's company ticker by fetching company
+                            # simple mapping: if sub.company matches ticker then notify channels
                             try:
-                                # get company for subscription
-                                # This is simplified; in production, map subscription to company
-                                if True:
-                                    # forward message to channel id stored in subscription
-                                    chan = sub.get('discord_channel')
-                                    msg = f"ALERT: {data.get('ticker')} score={data.get('score')} summary={data.get('summary')[:200]}")
-                                    await post_to_channel(bot, chan, msg)
+                                # in this starter, subscriptions list contains all subs; fetch company per sub is omitted for simplicity
+                                chan = sub.get('discord_channel')
+                                if chan:
+                                    await post_to_channel(bot, chan, message)
+                                # Slack via webhook on backend delivery; backend deliver_alert handles Slack/Jira
                             except Exception as e:
                                 print('forward error', e)
                 except Exception as e:
@@ -70,11 +65,9 @@ async def sse_listener():
 async def on_ready():
     print(f'Bot ready: {bot.user}')
 
-# simple commands to manage subscriptions
 @bot.command()
 async def subscribe(ctx, ticker: str):
-    # store subscription: use backend API
-    api = os.environ.get('BACKEND_API','http://investorsentinel-backend:8000') + '/api/subscriptions/add/'
+    api = BACKEND_API + '/api/subscriptions/add/'
     payload = {'ticker': ticker, 'channel': str(ctx.channel.id)}
     try:
         r = requests.post(api, json=payload)
@@ -86,8 +79,21 @@ async def subscribe(ctx, ticker: str):
         await ctx.send('Error contacting backend.')
 
 @bot.command()
+async def subscribe_slack(ctx, ticker: str, slack_channel: str, jira_project: str = ''):
+    # create subscription that includes slack channel and jira project
+    api = BACKEND_API + '/api/subscriptions/add/'
+    payload = {'ticker': ticker, 'channel': str(ctx.channel.id), 'slack': slack_channel, 'jira': jira_project}
+    try:
+        r = requests.post(api, json=payload)
+        if r.status_code == 200:
+            await ctx.send(f'Subscribed to {ticker.upper()} with Slack {slack_channel} and Jira {jira_project}.')
+        else:
+            await ctx.send(f'Error: {r.text}')
+    except Exception as e:
+        await ctx.send('Error contacting backend.')
+
+@bot.command()
 async def unsub(ctx, ticker: str):
-    # Note: backend doesn't have unsubscribe in starter; inform user
     await ctx.send('Unsubscribe not implemented in starter. Use admin to remove subscription.')
 
 def start_background_loop(loop):
@@ -98,7 +104,6 @@ if __name__ == '__main__':
     if not DISCORD_TOKEN:
         print('DISCORD_TOKEN not set')
         sys.exit(1)
-    # run sse listener in background thread using asyncio loop
     new_loop = asyncio.new_event_loop()
     t = threading.Thread(target=start_background_loop, args=(new_loop,), daemon=True)
     t.start()

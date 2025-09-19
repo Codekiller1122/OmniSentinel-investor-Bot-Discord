@@ -1,30 +1,29 @@
-# InvestorSentinel Bot - Dockerized Project
+# OmniSentinel - Cross-platform Alert Bot (Discord, Slack, Jira)
 
-This project contains:
+OmniSentinel forwards AI-driven stock sentiment alerts to Discord, Slack, and Jira.
 
-- `investorsentinel-backend`: Django app exposing endpoints to add companies, create alerts, and an SSE stream for realtime alerts.
-- `discord-bot`: A Discord bot that connects to the backend SSE stream and posts alerts to subscribed channels. Use `!subscribe TICKER` in a channel to subscribe.
+## Components
+- `backend/` (Django): alert ingestion, SSE stream, delivers Slack messages and creates Jira issues when subscriptions specify those channels/projects.
+- `discord-bot/`: Discord bot that listens to SSE and posts alerts to subscribed channels. Offers `!subscribe TICKER` and `!subscribe_slack TICKER SLACK_CHANNEL [JIRA_PROJECT]`.
 
-## Quickstart (local, Docker)
-1. Copy environment variables into the two .env files (`investorsentinel-backend/.env.example` and `discord-bot/.env.example`) and set real values.
+## Quickstart (Docker)
+1. Fill `backend/.env.example` and `discord-bot/.env.example` with real values.
 2. Build and run:
    ```bash
    docker-compose up --build
    ```
-3. In backend container, run migrations and seed:
+3. In backend container:
    ```bash
-   docker exec -it $(docker ps -qf "ancestor=investorsentinel-backend") python manage.py migrate
-   docker exec -it $(docker ps -qf "ancestor=investorsentinel-backend") python manage.py seed_companies
+   docker exec -it $(docker ps -qf "ancestor=omnisentinel-backend") python manage.py migrate
+   docker exec -it $(docker ps -qf "ancestor=omnisentinel-backend") python manage.py seed_companies
    ```
-4. Invite your Discord bot to your server and set DISCORD_TOKEN in `discord-bot/.env.example`.
-5. Subscribe a channel: in Discord, type `!subscribe AAPL` to subscribe the current channel to AAPL alerts.
+4. Invite the Discord bot and set `DISCORD_TOKEN`.
 
-## How it works
-- External systems (e.g., Stock LeadFinder AI) POST alerts to `/api/alerts/create/` with `ticker`, `score`, and `summary`.
-- Backend stores alerts and the SSE stream serves new alerts to connected listeners (the Discord bot).
-- The Discord bot forwards alerts to channels recorded in `Subscription` entries.
+## How alerts flow
+- External scanner posts to `/api/alerts/create/` with `ticker`, `score`, and `summary`.
+- Backend stores Alert and delivers Slack/Jira based on subscriptions, and exposes SSE stream for real-time forwarding to the Discord bot.
 
-## Notes & Next steps
-- SSE listener in the bot is a simple implementation for demos. For production, use robust reconnection/backoff and authenticated SSE or WebSocket with channels mapping.
-- Add unsubscribe and permission checks, and allow server admins to manage subscriptions via commands.
-- Harden security: verify incoming alert sources, add auth for endpoints, and rate-limit.
+## Notes
+- Slack: backend posts to a single `SLACK_WEBHOOK_URL` by default or per-subscription override via `slack_channel` (you may set channel-specific webhooks).
+- Jira: backend creates an issue in the subscription's `jira_project` if Jira env vars are configured.
+- This is a starter: implement auth, retry/backoff, and secure webhooks for production.
